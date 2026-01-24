@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
-import { flushSync } from 'react-dom';
 import { Reorder, useDragControls } from 'framer-motion';
 import type { DisplayItem } from '@/store';
 import { buildDisplayList, useDragStore } from '@/store';
@@ -117,14 +116,6 @@ function GroupHeaderItem({
         dragControls={dragControls}
         isDragging={isDragging}
         tabCount={tabCount}
-        onDragHandlePointerDown={() => {
-          const groupTabIds = tabs
-            .filter(t => typeof t.id === 'number' && !t.pinned && normalizeGroupId(t.groupId) === item.groupId)
-            .sort(byIndex)
-            .map(t => t.id as number);
-          dragTabIdsRef.current = groupTabIds;
-          flushSync(() => dragStore.startGroupDrag(item.groupId, groupTabIds));
-        }}
       />
     </Reorder.Item>
   );

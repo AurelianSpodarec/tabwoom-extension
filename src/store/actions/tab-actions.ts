@@ -231,36 +231,25 @@ export async function moveTabAcrossGroupsOptimistic(tabId: number, targetGroupId
   const sorted = [...prevTabs].sort(byIndex);
   const pinnedCount = sorted.filter(t => t.pinned).length;
 
-  // Build desired id order by moving tabId to the requested global index.
-  const unpinnedIds = sorted.filter(t => !t.pinned && typeof t.id === 'number').map(t => t.id as number);
-  const from = unpinnedIds.indexOf(tabId);
-  if (from === -1) return;
-
-  const desiredPos = Math.max(0, Math.min(unpinnedIds.length - 1, toIndex - pinnedCount));
-  unpinnedIds.splice(from, 1);
-  unpinnedIds.splice(desiredPos, 0, tabId);
-
-  const desiredGlobalIds = sorted
-    .filter(t => t.pinned && typeof t.id === 'number')
-    .map(t => t.id as number)
-    .concat(unpinnedIds);
-
-  const { pinned, unpinnedIds: finalUnpinnedIds, nextTabs } = normalizeDesiredOrder(prevTabs, desiredGlobalIds);
-
-  // Also update membership locally (atomic) so UI doesn't flicker between groups.
-  const nextTabsWithGroup = nextTabs.map(t => (t.id === tabId ? ({ ...t, groupId: targetGroupId ?? -1 } as Tab) : t));
-  setTabsAtomically(nextTabsWithGroup);
+  // Update local state to reflect the group change.
+  const nextTabs = prevTabs.map(t => (t.id === tabId ? ({ ...t, groupId: targetGroupId ?? -1 } as Tab) : t));
+  setTabsAtomically(nextTabs);
 
   try {
     await withRefreshSuppressed(async () => {
       if (targetGroupId === null) {
+        // Ungroup the tab, then move it to the desired position.
         await tabManager.ungroupTabs([tabId]);
+        await tabManager.moveTab(tabId, Math.max(pinnedCount, toIndex));
       } else {
+        // Add tab to group. Chrome positions it at the end of the group.
+        // Then move it within the group to the desired position.
         await tabManager.moveTabToGroup(tabId, targetGroupId);
+        await tabManager.moveTab(tabId, Math.max(pinnedCount, toIndex));
       }
-
-      // Re-assert full unpinned ordering to avoid any implicit Chrome adjustments.
-      await tabManager.moveTabs(finalUnpinnedIds, pinned.length);
+      // NOTE: We intentionally do NOT call bulk moveTabs() here.
+      // Chrome's tabs.move can implicitly ungroup tabs when they cross group boundaries.
+      // The group/ungroup + single tab move is sufficient.
     });
 
     await refreshTabCache();
