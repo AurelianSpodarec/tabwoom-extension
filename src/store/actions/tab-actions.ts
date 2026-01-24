@@ -231,8 +231,20 @@ export async function moveTabAcrossGroupsOptimistic(tabId: number, targetGroupId
   const sorted = [...prevTabs].sort(byIndex);
   const pinnedCount = sorted.filter(t => t.pinned).length;
 
-  // Update local state to reflect the group change.
-  const nextTabs = prevTabs.map(t => (t.id === tabId ? ({ ...t, groupId: targetGroupId ?? -1 } as Tab) : t));
+  // Build desired order: move tabId to toIndex position.
+  const unpinnedIds = sorted.filter(t => !t.pinned && typeof t.id === 'number').map(t => t.id as number);
+  const remaining = unpinnedIds.filter(id => id !== tabId);
+  const desiredPos = Math.max(0, Math.min(remaining.length, toIndex - pinnedCount));
+  remaining.splice(desiredPos, 0, tabId);
+
+  const desiredGlobalIds = sorted
+    .filter(t => t.pinned && typeof t.id === 'number')
+    .map(t => t.id as number)
+    .concat(remaining);
+
+  // Update both index (via normalizeDesiredOrder) and groupId.
+  const { nextTabs: reorderedTabs } = normalizeDesiredOrder(prevTabs, desiredGlobalIds);
+  const nextTabs = reorderedTabs.map(t => (t.id === tabId ? ({ ...t, groupId: targetGroupId ?? -1 } as Tab) : t));
   setTabsAtomically(nextTabs);
 
   try {
