@@ -1,5 +1,3 @@
-import './../../styles/App.css';
-import { Button } from '@/components';
 import { wallpapers } from '@/config/wallpapers';
 
 function TabItem() {
