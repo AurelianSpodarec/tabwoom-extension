@@ -1,3 +1,5 @@
+import type { PointerEventHandler } from 'react';
+import type { DragControls } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
 import type { TabGroup } from '@/services/tabs';
 import { updateGroup } from '@/store/actions/tab-actions';
@@ -16,15 +18,27 @@ const colorToClass: Record<string, string> = {
 
 export interface GroupHeaderProps {
   group: TabGroup;
+  dragControls?: DragControls;
 }
 
-export function GroupHeader({ group }: GroupHeaderProps) {
+export function GroupHeader({ group, dragControls }: GroupHeaderProps) {
   const title = group.title?.trim() || 'Group';
   const colorClass = colorToClass[group.color] ?? 'bg-white/40';
 
+  const handlePointerDown: PointerEventHandler<HTMLDivElement> | undefined = dragControls
+    ? e => {
+        // Prevent triggering any nested click handlers during drag.
+        e.stopPropagation();
+        dragControls.start(e);
+      }
+    : undefined;
+
   return (
     <div className="mb-1 mt-3 flex items-center justify-between gap-2 px-2">
-      <div className="flex min-w-0 items-center gap-2">
+      <div
+        className={`flex min-w-0 items-center gap-2 ${dragControls ? 'cursor-grab select-none active:cursor-grabbing' : ''}`}
+        onPointerDown={handlePointerDown}
+      >
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${colorClass}`} />
         <div className="truncate text-xs font-semibold uppercase tracking-wide text-white/70">{title}</div>
       </div>
