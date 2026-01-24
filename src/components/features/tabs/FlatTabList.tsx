@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { Reorder, useDragControls } from 'framer-motion';
 import type { DisplayItem } from '@/store';
-import { buildDisplayList } from '@/store';
+import { buildDisplayList, useDragStore } from '@/store';
 import type { Tab, TabGroup } from '@/services/tabs';
 import { moveGroupOptimistic, moveTabAcrossGroupsOptimistic, reorderTabsOptimistic } from '@/store/actions/tab-actions';
 import { computeTabDrop } from '@/lib/drag/computeDropResult';
@@ -12,6 +12,8 @@ import { clampGroupHeaderPlacement } from '@/lib/drag/clampGroupHeaderPlacement'
 import { mergeReorderWithAnchors } from '@/lib/drag/mergeReorderWithAnchors';
 import { GroupHeader } from './GroupHeader';
 import { TabItem } from './TabItem';
+import { DropIndicator } from './DropIndicator';
+import { draggedGroupStyle } from '@/lib/motion-config';
 
 function idsEqual(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
@@ -43,16 +45,11 @@ function byIndex(a: Tab, b: Tab): number {
 }
 
 
-type DragState =
-  | { kind: 'tab'; tabId: number; sourceGroupId: number | null }
-  | { kind: 'group'; groupId: number; tabIds: number[] }
-  | null;
 
 function GroupHeaderItem({
   item,
   tabs,
   orderRef,
-  dragRef,
   initialOrderRef,
   tabCount,
   isDragging,
@@ -64,16 +61,17 @@ function GroupHeaderItem({
   item: Extract<DisplayItem, { type: 'group-header' }>;
   tabs: Tab[];
   orderRef: MutableRefObject<string[]>;
-  dragRef: MutableRefObject<DragState>;
   initialOrderRef: MutableRefObject<string[]>;
   tabCount: number;
   isDragging: boolean;
-  onGroupDragStart: () => void;
+  onGroupDragStart: (groupId: number, tabIds: number[]) => void;
   onGroupDragEnd: () => void;
   onFallbackCommit: () => void;
   onMoveGroup: (tabIds: number[], groupId: number) => void;
 }) {
   const dragControls = useDragControls();
+  const dragStore = useDragStore();
+  const dragTabIdsRef = useRef<number[]>([]);
 
   return (
     <Reorder.Item
@@ -85,37 +83,33 @@ function GroupHeaderItem({
       dragElastic={0.05}
       className="relative rounded py-1 touch-none"
       data-group-header-id={item.groupId}
-      whileDrag={{
-        zIndex: 60,
-      }}
+      whileDrag={draggedGroupStyle}
       onDragStart={() => {
-        onGroupDragStart();
-
         const groupTabIds = tabs
           .filter(t => typeof t.id === 'number' && !t.pinned && normalizeGroupId(t.groupId) === item.groupId)
           .sort(byIndex)
           .map(t => t.id as number);
 
-        dragRef.current = { kind: 'group', groupId: item.groupId, tabIds: groupTabIds };
+        dragTabIdsRef.current = groupTabIds;
         initialOrderRef.current = orderRef.current;
+        onGroupDragStart(item.groupId, groupTabIds);
       }}
       onDragEnd={() => {
         onGroupDragEnd();
 
-        const active = dragRef.current;
-        dragRef.current = null;
-
-        if (!active || active.kind !== 'group' || active.groupId !== item.groupId) {
+        const drag = dragStore.drag;
+        if (drag.kind !== 'dragging-group' || drag.groupId !== item.groupId) {
           onFallbackCommit();
           return;
         }
 
-        if (active.tabIds.length === 0) {
+        const tabIds = dragTabIdsRef.current;
+        if (tabIds.length === 0) {
           onFallbackCommit();
           return;
         }
 
-        onMoveGroup(active.tabIds, active.groupId);
+        onMoveGroup(tabIds, item.groupId);
       }}
     >
       <GroupHeader
@@ -123,7 +117,14 @@ function GroupHeaderItem({
         dragControls={dragControls}
         isDragging={isDragging}
         tabCount={tabCount}
-        onDragHandlePointerDown={onGroupDragStart}
+        onDragHandlePointerDown={() => {
+          const groupTabIds = tabs
+            .filter(t => typeof t.id === 'number' && !t.pinned && normalizeGroupId(t.groupId) === item.groupId)
+            .sort(byIndex)
+            .map(t => t.id as number);
+          dragTabIdsRef.current = groupTabIds;
+          flushSync(() => dragStore.startGroupDrag(item.groupId, groupTabIds));
+        }}
       />
     </Reorder.Item>
   );
@@ -140,14 +141,33 @@ export interface FlatTabListProps {
 
 export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose, onToggleSelect }: FlatTabListProps) {
   const displayItems = useMemo(() => buildDisplayList(tabs, groups), [tabs, groups]);
+  
+  // Separate pinned tabs from the main list (pinned tabs are always at the start)
+  const { pinnedItems, unpinnedItems } = useMemo(() => {
+    const pinned: DisplayItem[] = [];
+    const unpinned: DisplayItem[] = [];
+    
+    for (const item of displayItems) {
+      if (item.type === 'tab' && item.tab.pinned) {
+        pinned.push(item);
+      } else {
+        unpinned.push(item);
+      }
+    }
+    
+    return { pinnedItems: pinned, unpinnedItems: unpinned };
+  }, [displayItems]);
+  
   const itemByKey = useMemo(() => new Map(displayItems.map(i => [i.key, i])), [displayItems]);
-  const keys = useMemo(() => displayItems.map(i => i.key), [displayItems]);
+  const keys = useMemo(() => unpinnedItems.map(i => i.key), [unpinnedItems]);
 
   const [order, setOrder] = useState<string[]>(keys);
   const orderRef = useRef<string[]>(keys);
   const initialOrderRef = useRef<string[]>(keys);
 
-  const [draggingGroupId, setDraggingGroupId] = useState<number | null>(null);
+  const dragStore = useDragStore();
+  const drag = dragStore.drag;
+  const draggingGroupId = drag.kind === 'dragging-group' ? drag.groupId : null;
 
   const groupTabCountById = useMemo(() => {
     const counts = new Map<number, number>();
@@ -180,15 +200,12 @@ export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose,
     return order.filter(k => !ghostedTabKeySet.has(k));
   }, [order, ghostedTabKeySet]);
 
-  const setOrderState = (next: string[]) => {
+  const setOrderState = useCallback((next: string[]) => {
     orderRef.current = next;
     setOrder(next);
-  };
-
-  const dragRef = useRef<DragState>(null);
+  }, []);
 
   const hoveredHeaderGroupIdRef = useRef<number | null>(null);
-  const headerHoverCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     setOrderState(keys);
@@ -205,8 +222,6 @@ export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose,
   };
 
   const onReorder = (nextReorderValues: string[]) => {
-    const active = dragRef.current;
-
     const merged =
       ghostedTabKeySet.size === 0
         ? nextReorderValues
@@ -216,62 +231,111 @@ export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose,
             nextReorderValues,
           });
 
-    if (active?.kind !== 'group') {
+    if (drag.kind === 'dragging-tab') {
+      const draggedKey = `t:${drag.tabId}`;
+      const idx = merged.indexOf(draggedKey);
+      const afterKey = idx > 0 ? merged[idx - 1] : null;
+      const afterItem = afterKey ? itemByKey.get(afterKey) : null;
+      const groupColor = afterItem?.type === 'group-header' ? afterItem.group.color : undefined;
+      dragStore.setDropIndicator({ afterKey, groupColor });
+    }
+
+    if (drag.kind !== 'dragging-group') {
       setOrderState(merged);
       return;
     }
 
-    const headerKey = `h:${active.groupId}`;
+    const headerKey = `h:${drag.groupId}`;
     const prevHeaderIndex = orderRef.current.indexOf(headerKey);
     const nextHeaderIndex = merged.indexOf(headerKey);
 
     const direction =
       nextHeaderIndex > prevHeaderIndex ? 'down' : nextHeaderIndex < prevHeaderIndex ? 'up' : undefined;
 
-    setOrderState(
-      clampGroupHeaderPlacement({
-        orderKeys: merged,
-        draggedGroupId: active.groupId,
-        itemByKey,
-        direction,
-      }),
-    );
+    const clamped = clampGroupHeaderPlacement({
+      orderKeys: merged,
+      draggedGroupId: drag.groupId,
+      itemByKey,
+      direction,
+      draggedTabKeys: ghostedTabKeySet,
+    });
+
+    const clampedIdx = clamped.indexOf(headerKey);
+    const afterKey = clampedIdx > 0 ? clamped[clampedIdx - 1] : null;
+    dragStore.setDropIndicator({ afterKey });
+
+    setOrderState(clamped);
   };
 
-  const orderedItems = useMemo(() => order.map(k => itemByKey.get(k)).filter((i): i is DisplayItem => !!i), [order, itemByKey]);
+  const orderedUnpinnedItems = useMemo(() => order.map(k => itemByKey.get(k)).filter((i): i is DisplayItem => !!i), [order, itemByKey]);
+  const dropIndicator = dragStore.dropIndicator;
+
+  const renderDropIndicator = (afterKey: string | null) => {
+    if (!dropIndicator || dropIndicator.afterKey !== afterKey) return null;
+    if (drag.kind === 'idle') return null;
+    return <DropIndicator visible groupColor={dropIndicator.groupColor} />;
+  };
+
+  const hasPinnedTabs = pinnedItems.length > 0;
 
   return (
-    <Reorder.Group axis="y" as="div" values={reorderValues} onReorder={onReorder} layoutScroll className="space-y-1">
-      {orderedItems.map(item => {
+    <div className="space-y-1">
+      {/* Pinned tabs section - not draggable */}
+      {hasPinnedTabs && (
+        <div className="space-y-1">
+          {pinnedItems.map(item => {
+            if (item.type !== 'tab') return null;
+            const tab = item.tab;
+            const tabId = item.tabId;
+            return (
+              <TabItem
+                key={item.key}
+                mode="static"
+                tab={tab}
+                selected={selectedTabIds.has(tabId)}
+                onActivate={onActivate}
+                onClose={onClose}
+                onToggleSelect={onToggleSelect}
+              />
+            );
+          })}
+          {/* Divider between pinned and unpinned */}
+          <div className="mx-2 my-2 h-px bg-white/20" />
+        </div>
+      )}
+      
+      {/* Unpinned tabs - draggable */}
+      <Reorder.Group axis="y" as="div" values={reorderValues} onReorder={onReorder} layoutScroll className="space-y-1">
+        {renderDropIndicator(null)}
+        {orderedUnpinnedItems.map(item => {
         if (item.type === 'group-header') {
           return (
-            <GroupHeaderItem
-              key={item.key}
-              item={item}
-              tabs={tabs}
-              orderRef={orderRef}
-              dragRef={dragRef}
-              initialOrderRef={initialOrderRef}
-              tabCount={groupTabCountById.get(item.groupId) ?? 0}
-              isDragging={draggingGroupId === item.groupId}
-              onGroupDragStart={() => {
-                // We change the `Reorder.Group` values set when a group drag starts.
-                // Flush synchronously so Framer starts the drag against the right list.
-                flushSync(() => setDraggingGroupId(item.groupId));
-              }}
-              onGroupDragEnd={() => setDraggingGroupId(null)}
-              onFallbackCommit={() => commitIfChanged(orderRef.current)}
-              onMoveGroup={(tabIds, groupId) => {
-                const pinnedCount = tabs.filter(t => !!t.pinned).length;
-                const toIndex = computeGroupDragTargetIndex({
-                  finalOrderKeys: orderRef.current,
-                  draggedGroupId: groupId,
-                  draggedTabIds: tabIds,
-                  pinnedCount,
-                });
-                void moveGroupOptimistic(groupId, toIndex);
-              }}
-            />
+            <React.Fragment key={item.key}>
+              <GroupHeaderItem
+                item={item}
+                tabs={tabs}
+                orderRef={orderRef}
+                initialOrderRef={initialOrderRef}
+                tabCount={groupTabCountById.get(item.groupId) ?? 0}
+                isDragging={draggingGroupId === item.groupId}
+                onGroupDragStart={(groupId, tabIds) => {
+                  dragStore.startGroupDrag(groupId, tabIds);
+                }}
+                onGroupDragEnd={() => dragStore.endDrag()}
+                onFallbackCommit={() => commitIfChanged(orderRef.current)}
+                onMoveGroup={(tabIds, groupId) => {
+                  const pinnedCount = tabs.filter(t => !!t.pinned).length;
+                  const toIndex = computeGroupDragTargetIndex({
+                    finalOrderKeys: orderRef.current,
+                    draggedGroupId: groupId,
+                    draggedTabIds: tabIds,
+                    pinnedCount,
+                  });
+                  void moveGroupOptimistic(groupId, toIndex);
+                }}
+              />
+              {renderDropIndicator(item.key)}
+            </React.Fragment>
           );
         }
 
@@ -279,98 +343,69 @@ export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose,
         const tabId = item.tabId;
         const sourceGroupId = normalizeGroupId(tab.groupId);
 
-        const ghosted = draggingGroupId !== null && sourceGroupId === draggingGroupId;
-
-        if (ghosted) {
-          return (
-            <TabItem
-              key={item.key}
-              mode="static"
-              ghosted
-              value={item.key}
-              tab={tab}
-              selected={selectedTabIds.has(tabId)}
-              onActivate={onActivate}
-              onClose={onClose}
-              onToggleSelect={onToggleSelect}
-            />
-          );
+        // Skip rendering tabs from the dragging group entirely for performance.
+        // This avoids DOM overhead with large groups (200+ tabs).
+        const isInDraggingGroup = draggingGroupId !== null && sourceGroupId === draggingGroupId;
+        if (isInDraggingGroup) {
+          return null;
         }
 
         return (
-          <TabItem
-            key={item.key}
-            value={item.key}
-            tab={tab}
-            selected={selectedTabIds.has(tabId)}
-            onActivate={onActivate}
-            onClose={onClose}
-            onToggleSelect={onToggleSelect}
-            onDragStart={() => {
-              dragRef.current = { kind: 'tab', tabId, sourceGroupId };
-              initialOrderRef.current = orderRef.current;
+          <React.Fragment key={item.key}>
+            <TabItem
+              value={item.key}
+              tab={tab}
+              selected={selectedTabIds.has(tabId)}
+              isDragActive={drag.kind !== 'idle'}
+              onActivate={onActivate}
+              onClose={onClose}
+              onToggleSelect={onToggleSelect}
+              onDragStart={() => {
+                dragStore.startTabDrag(tabId, sourceGroupId);
+                initialOrderRef.current = orderRef.current;
+                hoveredHeaderGroupIdRef.current = sourceGroupId;
+              }}
+              onDragEnd={() => {
+                const currentDrag = dragStore.drag;
+                dragStore.endDrag();
 
-              hoveredHeaderGroupIdRef.current = null;
-              headerHoverCleanupRef.current?.();
-
-              const handler = (e: PointerEvent) => {
-                const els = document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[];
-                let raw: string | undefined;
-
-                for (const el of els) {
-                  const host = el?.closest?.('[data-group-header-id]') as HTMLElement | null;
-                  if (host?.dataset.groupHeaderId) {
-                    raw = host.dataset.groupHeaderId;
-                    break;
-                  }
+                if (currentDrag.kind !== 'dragging-tab' || currentDrag.tabId !== tabId) {
+                  commitIfChanged(orderRef.current);
+                  return;
                 }
 
-                const next = raw ? Number(raw) : null;
-                hoveredHeaderGroupIdRef.current = next !== null && Number.isFinite(next) ? next : null;
-              };
+                if (idsEqual(initialOrderRef.current, orderRef.current)) return;
 
-              window.addEventListener('pointermove', handler, { passive: true });
-              headerHoverCleanupRef.current = () => window.removeEventListener('pointermove', handler);
-            }}
-            onDragEnd={() => {
-              const active = dragRef.current;
-              dragRef.current = null;
+                const finalItems = orderRef.current.map(k => itemByKey.get(k)).filter((i): i is DisplayItem => !!i);
+                const dropIndex = finalItems.findIndex(i => i.type === 'tab' && i.tabId === tabId);
+                if (dropIndex === -1) return;
 
-              headerHoverCleanupRef.current?.();
-              headerHoverCleanupRef.current = null;
+                const drop = computeTabDrop(finalItems, tabId, dropIndex, currentDrag.sourceGroupId, {
+                  hoveredHeaderGroupId: hoveredHeaderGroupIdRef.current,
+                });
 
-              if (!active || active.kind !== 'tab' || active.tabId !== tabId) {
-                // Fall back to a generic commit if something got out of sync.
-                commitIfChanged(orderRef.current);
-                return;
-              }
+                const rawTabOrder = finalItems
+                  .filter((i): i is Extract<DisplayItem, { type: 'tab' }> => i.type === 'tab')
+                  .map(i => i.tabId);
 
-              if (idsEqual(initialOrderRef.current, orderRef.current)) return;
+                const desiredTabOrder = moveInList(rawTabOrder, tabId, drop.newIndex);
 
-              const finalItems = orderRef.current.map(k => itemByKey.get(k)).filter((i): i is DisplayItem => !!i);
-              const dropIndex = finalItems.findIndex(i => i.type === 'tab' && i.tabId === tabId);
-              if (dropIndex === -1) return;
+                if (drop.type === 'reorder') {
+                  void reorderTabsOptimistic(desiredTabOrder);
+                  return;
+                }
 
-              const drop = computeTabDrop(finalItems, tabId, dropIndex, active.sourceGroupId, {
-                hoveredHeaderGroupId: hoveredHeaderGroupIdRef.current,
-              });
-
-              const rawTabOrder = finalItems
-                .filter((i): i is Extract<DisplayItem, { type: 'tab' }> => i.type === 'tab')
-                .map(i => i.tabId);
-
-              const desiredTabOrder = moveInList(rawTabOrder, tabId, drop.newIndex);
-
-              if (drop.type === 'reorder') {
-                void reorderTabsOptimistic(desiredTabOrder);
-                return;
-              }
-
-              void moveTabAcrossGroupsOptimistic(tabId, drop.newGroupId, drop.newIndex);
-            }}
-          />
+                void moveTabAcrossGroupsOptimistic(tabId, drop.newGroupId, drop.newIndex);
+              }}
+              onHoverGroupChange={groupId => {
+                hoveredHeaderGroupIdRef.current = groupId;
+              }}
+            />
+            {renderDropIndicator(item.key)}
+          </React.Fragment>
         );
       })}
-    </Reorder.Group>
+      </Reorder.Group>
+    </div>
   );
 }

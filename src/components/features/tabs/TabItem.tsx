@@ -1,8 +1,9 @@
-import type { MouseEventHandler } from 'react';
-import { useRef } from 'react';
+import type { MouseEventHandler, PointerEventHandler } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { Reorder } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
 import type { Tab } from '@/services/tabs';
+import { draggedItemStyle, layoutTransition } from '@/lib/motion-config';
 
 export interface TabItemProps {
   tab: Tab;
@@ -21,11 +22,19 @@ export interface TabItemProps {
    * Visually de-emphasize the row and disable pointer interaction.
    */
   ghosted?: boolean;
+  /**
+   * Whether any drag is currently active (used to disable pointer events on non-dragged items).
+   */
+  isDragActive?: boolean;
   onActivate: (tabId: number) => void;
   onClose: (tabId: number) => void;
   onToggleSelect: (tabId: number, multi: boolean) => void;
   onDragStart?: (tabId: number) => void;
   onDragEnd?: (tabId: number) => void;
+  /**
+   * Called when the pointer moves over a group header during drag.
+   */
+  onHoverGroupChange?: (groupId: number | null) => void;
 }
 
 export function TabItem({
@@ -34,15 +43,18 @@ export function TabItem({
   value,
   mode = 'reorder',
   ghosted,
+  isDragActive,
   onActivate,
   onClose,
   onToggleSelect,
   onDragStart,
   onDragEnd,
+  onHoverGroupChange,
 }: TabItemProps) {
   if (!tab.id) return null;
 
   const draggingRef = useRef(false);
+  const hoverCleanupRef = useRef<(() => void) | null>(null);
 
   const handleClick: MouseEventHandler<HTMLDivElement> = e => {
     if (ghosted) return;
@@ -54,12 +66,15 @@ export function TabItem({
   };
 
   const isDraggable = mode === 'reorder' && !ghosted && !tab.pinned;
+  const isThisDragging = draggingRef.current;
+  const shouldDisablePointer = isDragActive && !isThisDragging;
 
   const cursorClass = ghosted ? 'cursor-default' : isDraggable ? 'cursor-grab active:cursor-grabbing' : tab.pinned ? 'cursor-default' : 'cursor-pointer';
-  const hoverClass = ghosted ? '' : selected ? '' : 'hover:bg-white/10';
+  const hoverClass = ghosted || shouldDisablePointer ? '' : selected ? '' : 'hover:bg-white/10';
   const selectedClass = selected ? 'bg-white/15' : '';
+  const pointerClass = ghosted ? 'opacity-30 pointer-events-none' : shouldDisablePointer ? 'pointer-events-none' : '';
 
-  const className = `flex items-center gap-2 rounded px-2 py-2 text-sm transition-colors ${selectedClass} ${hoverClass} ${cursorClass} ${ghosted ? 'opacity-30 pointer-events-none' : ''}`;
+  const className = `flex items-center gap-2 rounded px-2 py-2 text-sm transition-colors ${selectedClass} ${hoverClass} ${cursorClass} ${pointerClass}`;
 
   const contents = (
     <>
@@ -103,28 +118,58 @@ export function TabItem({
     );
   }
 
+  const setupHoverTracking = useCallback(() => {
+    if (!onHoverGroupChange) return;
+
+    let lastGroupId: number | null = null;
+    let rafId: number | null = null;
+
+    const handler = (e: PointerEvent) => {
+      if (rafId !== null) return;
+
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+        const host = el?.closest?.('[data-group-header-id]') as HTMLElement | null;
+        const raw = host?.dataset.groupHeaderId;
+
+        const nextGroupId = raw ? Number(raw) : null;
+        const validGroupId = nextGroupId !== null && Number.isFinite(nextGroupId) ? nextGroupId : null;
+
+        if (validGroupId !== lastGroupId) {
+          lastGroupId = validGroupId;
+          onHoverGroupChange(validGroupId);
+        }
+      });
+    };
+
+    window.addEventListener('pointermove', handler, { passive: true });
+    hoverCleanupRef.current = () => {
+      window.removeEventListener('pointermove', handler);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [onHoverGroupChange]);
+
   return (
     <Reorder.Item
       as="div"
       value={value ?? `t:${tab.id}`}
       drag={isDraggable ? 'y' : false}
       layout
+      layoutTransition={layoutTransition}
       dragMomentum={false}
       dragElastic={0.05}
-      whileDrag={{
-        scale: 1.02,
-        opacity: 0.9,
-        zIndex: 50,
-        boxShadow: '0 10px 25px rgba(0,0,0,0.35)',
-      }}
+      whileDrag={draggedItemStyle}
       className={className}
       onClick={handleClick}
       onDragStart={() => {
         draggingRef.current = true;
+        setupHoverTracking();
         onDragStart?.(tab.id!);
       }}
       onDragEnd={() => {
-        // Click can fire after drag end; delay clearing the flag.
+        hoverCleanupRef.current?.();
+        hoverCleanupRef.current = null;
         setTimeout(() => {
           draggingRef.current = false;
         }, 0);

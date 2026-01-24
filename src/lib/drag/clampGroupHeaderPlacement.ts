@@ -20,10 +20,17 @@ export function clampGroupHeaderPlacement(input: {
    * when dragging down across large groups. Prefer snapping in the direction of travel.
    */
   direction?: 'up' | 'down';
+  /**
+   * Tab keys belonging to the dragged group. These are anchored during drag and may appear
+   * at unexpected positions. Skip them when detecting other groups' boundaries.
+   */
+  draggedTabKeys?: Set<string>;
 }): string[] {
   const headerKey = `h:${input.draggedGroupId}`;
   const fromIndex = input.orderKeys.indexOf(headerKey);
   if (fromIndex === -1) return input.orderKeys;
+
+  const draggedTabKeys = input.draggedTabKeys ?? new Set<string>();
 
   // Remove the header so we can reason about the insertion point.
   const withoutHeader = [...input.orderKeys];
@@ -39,17 +46,27 @@ export function clampGroupHeaderPlacement(input: {
     let adjusted = false;
 
     for (let i = 0; i < withoutHeader.length; i++) {
-      const groupId = parseHeaderGroupId(withoutHeader[i] ?? '');
+      const k = withoutHeader[i] ?? '';
+      
+      // Skip dragged group's anchored tabs when scanning for group headers
+      if (draggedTabKeys.has(k)) continue;
+      
+      const groupId = parseHeaderGroupId(k);
       if (groupId === null) continue;
       if (groupId === input.draggedGroupId) continue;
 
+      // Find the extent of this group's tab run, skipping dragged group's tabs
       let lastTabIndex = i;
       for (let j = i + 1; j < withoutHeader.length; j++) {
-        const k = withoutHeader[j] ?? '';
-        if (k.startsWith('h:')) break;
-        if (!k.startsWith('t:')) break;
+        const tabKey = withoutHeader[j] ?? '';
+        
+        // Skip dragged group's anchored tabs - they don't belong to this group
+        if (draggedTabKeys.has(tabKey)) continue;
+        
+        if (tabKey.startsWith('h:')) break;
+        if (!tabKey.startsWith('t:')) break;
 
-        const item = input.itemByKey.get(k);
+        const item = input.itemByKey.get(tabKey);
         if (!item || item.type !== 'tab') break;
         if (normalizeGroupId(item.tab.groupId) !== groupId) break;
 
