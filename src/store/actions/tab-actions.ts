@@ -3,20 +3,52 @@ import { tabCache } from '@/store/tab-cache';
 
 const tabManager = getTabManager();
 
-export async function refreshTabCache(): Promise<void> {
-  tabCache.getState().setLoading(true);
+let refreshInFlight: Promise<void> | null = null;
+let pendingRefresh = false;
+
+async function doRefresh(): Promise<void> {
+  const state = tabCache.getState();
+
+  // Only show full-page loading on the first ever load.
+  if (!state.hasLoaded) state.setLoading(true);
+  else state.setRefreshing(true);
+
   try {
     const [tabs, groups] = await Promise.all([
       tabManager.getCurrentWindowTabs(),
       tabManager.getCurrentWindowGroups(),
     ]);
-    tabCache.getState().setSnapshot({ tabs, groups });
-    tabCache.getState().setError(null);
+
+    state.setSnapshot({ tabs, groups });
+    state.setError(null);
   } catch (e) {
-    tabCache.getState().setError(e instanceof Error ? e : new Error('Failed to refresh tab cache'));
+    state.setError(e instanceof Error ? e : new Error('Failed to refresh tab cache'));
   } finally {
-    tabCache.getState().setLoading(false);
+    state.setHasLoaded(true);
+    state.setLoading(false);
+    state.setRefreshing(false);
   }
+}
+
+export async function refreshTabCache(): Promise<void> {
+  if (refreshInFlight) {
+    pendingRefresh = true;
+    return refreshInFlight;
+  }
+
+  refreshInFlight = (async () => {
+    await doRefresh();
+
+    // If more events came in while we were refreshing, do one more pass.
+    if (pendingRefresh) {
+      pendingRefresh = false;
+      await doRefresh();
+    }
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
 }
 
 export async function activateTab(tabId: number): Promise<void> {

@@ -9,6 +9,8 @@ import { activateTab, closeTabOptimistic } from '@/store/actions/tab-actions';
 
 export function TabPanel() {
   const loading = useTabCache(s => s.loading);
+  const refreshing = useTabCache(s => s.refreshing);
+  const hasLoaded = useTabCache(s => s.hasLoaded);
   const error = useTabCache(s => s.error);
 
   const groupedTabs = useGroupedTabs();
@@ -31,12 +33,19 @@ export function TabPanel() {
       .filter(group => group.tabs.length > 0);
   }, [groupedTabs, searchQuery]);
 
-  if (loading) return <div className="text-sm text-white/70">Loading tabs…</div>;
-  if (error) return <div className="text-sm text-red-300">{error.message}</div>;
+  if (!hasLoaded && loading) return <div className="text-sm text-white/70">Loading tabs…</div>;
+  if (!hasLoaded && error) return <div className="text-sm text-red-300">{error.message}</div>;
 
   return (
     <div className="w-full">
-      <TabSearchBar />
+      <div className="mb-2 flex items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <TabSearchBar />
+        </div>
+        {refreshing ? <div className="ml-2 shrink-0 text-xs text-white/50">Syncing…</div> : null}
+      </div>
+
+      {error ? <div className="mb-2 text-xs text-red-300">{error.message}</div> : null}
 
       <GroupedTabList
         groupedTabs={filteredGroupedTabs}
