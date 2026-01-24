@@ -32,6 +32,12 @@ class TabManagerService {
     return browser.tabGroups.query({ windowId });
   }
 
+  async getCurrentWindowGroups(): Promise<TabGroup[]> {
+    const win = await browser.windows.getCurrent();
+    if (!win.id) return [];
+    return this.getGroupsByWindow(win.id);
+  }
+
   async getGroup(groupId: number): Promise<TabGroup> {
     return browser.tabGroups.get(groupId);
   }
