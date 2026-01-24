@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { browser } from 'wxt/browser';
+import { EVENTS } from '@/lib/events';
 import { getTabManager, type Tab } from '@/services/tabs';
 
 export function useTabs() {
@@ -25,7 +26,7 @@ export function useTabs() {
     load();
 
     const handler = (msg: { type: string }) => {
-      if (msg.type === 'TABS_CHANGED') {
+      if (msg.type === EVENTS.TABS_CHANGED) {
         load();
       }
     };

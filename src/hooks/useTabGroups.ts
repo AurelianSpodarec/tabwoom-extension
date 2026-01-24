@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { browser } from 'wxt/browser';
+import { EVENTS } from '@/lib/events';
 import { getTabManager, type TabGroup, type TabGroupColor, type GroupedTabs } from '@/services/tabs';
 
 export function useTabGroups() {
@@ -30,7 +31,7 @@ export function useTabGroups() {
     load();
 
     const handler = (msg: { type: string }) => {
-      if (msg.type === 'TABS_CHANGED' || msg.type === 'GROUPS_CHANGED') {
+      if (msg.type === EVENTS.TABS_CHANGED || msg.type === EVENTS.GROUPS_CHANGED) {
         load();
       }
     };
