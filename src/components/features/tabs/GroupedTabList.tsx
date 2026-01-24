@@ -13,8 +13,8 @@ export interface GroupedTabListProps {
 export function GroupedTabList({ groupedTabs, selectedTabIds, onActivate, onClose, onToggleSelect }: GroupedTabListProps) {
   return (
     <div>
-      {groupedTabs.map(group => (
-        <div key={group.group?.id ?? 'ungrouped'}>
+      {groupedTabs.map((group, i) => (
+        <div key={group.group?.id ?? `ungrouped-${i}`}>
           {group.group ? <GroupHeader group={group.group} /> : null}
           <TabList
             tabs={group.tabs}
