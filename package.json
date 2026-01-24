@@ -12,11 +12,16 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "@webext-core/messaging": "^2.3.0",
+    "@webext-core/proxy-service": "^2.0.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "webextension-polyfill": "^0.12.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -25,6 +30,7 @@
     "@wxt-dev/module-react": "^1.1.5",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
     "wxt": "^0.20.6"
   }
 }

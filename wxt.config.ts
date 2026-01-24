@@ -7,6 +7,7 @@ export default defineConfig({
   srcDir: 'src',
   manifest: {
     action: {},
+    permissions: ['tabs', 'tabGroups'],
   },
   vite: () => ({
     plugins: [tailwindcss()],
