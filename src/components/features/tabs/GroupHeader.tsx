@@ -19,28 +19,42 @@ const colorToClass: Record<string, string> = {
 export interface GroupHeaderProps {
   group: TabGroup;
   dragControls?: DragControls;
+  isDragging?: boolean;
+  tabCount?: number;
+  /**
+   * Lets the parent update state before the drag session starts (avoids mid-drag remount issues).
+   */
+  onDragHandlePointerDown?: () => void;
 }
 
-export function GroupHeader({ group, dragControls }: GroupHeaderProps) {
+export function GroupHeader({ group, dragControls, isDragging, tabCount, onDragHandlePointerDown }: GroupHeaderProps) {
   const title = group.title?.trim() || 'Group';
   const colorClass = colorToClass[group.color] ?? 'bg-white/40';
 
   const handlePointerDown: PointerEventHandler<HTMLDivElement> | undefined = dragControls
     ? e => {
+        onDragHandlePointerDown?.();
+
         // Prevent triggering any nested click handlers during drag.
         e.stopPropagation();
         dragControls.start(e);
       }
     : undefined;
 
+  const badge = typeof tabCount === 'number' ? `${tabCount} ${tabCount === 1 ? 'tab' : 'tabs'}` : null;
+
   return (
     <div className="mb-1 mt-3 flex items-center justify-between gap-2 px-2">
       <div
-        className={`flex min-w-0 items-center gap-2 ${dragControls ? 'cursor-grab select-none active:cursor-grabbing' : ''}`}
+        className={`flex min-w-0 items-center gap-2 select-none ${dragControls ? 'cursor-grab active:cursor-grabbing' : ''}`}
         onPointerDown={handlePointerDown}
       >
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${colorClass}`} />
         <div className="truncate text-xs font-semibold uppercase tracking-wide text-white/70">{title}</div>
+
+        {isDragging && badge ? (
+          <div className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/60">{badge}</div>
+        ) : null}
       </div>
 
       <Button

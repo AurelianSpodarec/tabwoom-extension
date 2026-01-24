@@ -124,6 +124,10 @@ class TabManagerService {
     // browser.tabs.move preserves the order of the provided tabIds array.
     await browser.tabs.move(tabIds as unknown as number[], { index: toIndex });
   }
+
+  async moveGroup(groupId: number, toIndex: number): Promise<void> {
+    await browser.tabGroups.move(groupId, { index: toIndex });
+  }
 }
 
 const SERVICE_KEY = 'TabManager' as ProxyServiceKey<TabManagerService>;

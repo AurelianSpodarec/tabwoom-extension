@@ -269,3 +269,98 @@ export async function moveTabAcrossGroupsOptimistic(tabId: number, targetGroupId
     throw e;
   }
 }
+
+/**
+ * Moves a set of tabs as a contiguous block to the requested index.
+ *
+ * This is the operation needed for group drags: move the group's tab range in a single `tabs.move`
+ * call to preserve membership and relative ordering.
+ */
+export async function moveTabsAsBlockOptimistic(tabIds: number[], toIndex: number): Promise<void> {
+  if (tabIds.length === 0) return;
+
+  const prevTabs = tabCache.getState().tabs;
+  const sorted = [...prevTabs].sort(byIndex);
+
+  const pinnedCount = sorted.filter(t => t.pinned).length;
+
+  const unpinnedIds = sorted.filter(t => !t.pinned && typeof t.id === 'number').map(t => t.id as number);
+  const idSet = new Set(tabIds);
+
+  const moving = unpinnedIds.filter(id => idSet.has(id));
+  if (moving.length === 0) return;
+
+  const remaining = unpinnedIds.filter(id => !idSet.has(id));
+
+  const desiredPos = Math.max(0, Math.min(remaining.length, toIndex - pinnedCount));
+  remaining.splice(desiredPos, 0, ...moving);
+
+  const desiredGlobalIds = sorted
+    .filter(t => t.pinned && typeof t.id === 'number')
+    .map(t => t.id as number)
+    .concat(remaining);
+
+  const { pinned, unpinnedIds: finalUnpinnedIds, nextTabs } = normalizeDesiredOrder(prevTabs, desiredGlobalIds);
+  setTabsAtomically(nextTabs);
+
+  try {
+    await withRefreshSuppressed(async () => {
+      // Move just the dragged block.
+      await tabManager.moveTabs(moving, toIndex);
+      // Re-assert full unpinned ordering to avoid any implicit Chrome adjustments.
+      await tabManager.moveTabs(finalUnpinnedIds, pinned.length);
+    });
+
+    await refreshTabCache();
+  } catch (e) {
+    setTabsAtomically(prevTabs);
+    throw e;
+  }
+}
+
+/**
+ * Moves an entire group as a unit.
+ *
+ * `tabs.move` can implicitly change group membership when moved tabs cross other groups.
+ * `tabGroups.move` preserves the group and all its tabs.
+ */
+export async function moveGroupOptimistic(groupId: number, toIndex: number): Promise<void> {
+  const prevTabs = tabCache.getState().tabs;
+  const sorted = [...prevTabs].sort(byIndex);
+
+  const pinnedCount = sorted.filter(t => t.pinned).length;
+
+  const groupTabIds = sorted
+    .filter(t => !t.pinned && typeof t.id === 'number' && t.groupId === groupId)
+    .map(t => t.id as number);
+
+  if (groupTabIds.length === 0) return;
+
+  // Optimistic local reorder: treat the group's tabs as a block.
+  const unpinnedIds = sorted.filter(t => !t.pinned && typeof t.id === 'number').map(t => t.id as number);
+  const idSet = new Set(groupTabIds);
+  const moving = unpinnedIds.filter(id => idSet.has(id));
+  const remaining = unpinnedIds.filter(id => !idSet.has(id));
+
+  const desiredPos = Math.max(0, Math.min(remaining.length, toIndex - pinnedCount));
+  remaining.splice(desiredPos, 0, ...moving);
+
+  const desiredGlobalIds = sorted
+    .filter(t => t.pinned && typeof t.id === 'number')
+    .map(t => t.id as number)
+    .concat(remaining);
+
+  const { nextTabs } = normalizeDesiredOrder(prevTabs, desiredGlobalIds);
+  setTabsAtomically(nextTabs);
+
+  try {
+    await withRefreshSuppressed(async () => {
+      await tabManager.moveGroup(groupId, Math.max(pinnedCount, toIndex));
+    });
+
+    await refreshTabCache();
+  } catch (e) {
+    setTabsAtomically(prevTabs);
+    throw e;
+  }
+}
