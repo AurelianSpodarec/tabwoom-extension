@@ -7,6 +7,11 @@ import type { Tab } from '@/services/tabs';
 export interface TabItemProps {
   tab: Tab;
   selected: boolean;
+  /**
+   * `Reorder.Item` value. Use a prefixed string to avoid collisions with other draggable types.
+   * Defaults to `t:${tab.id}`.
+   */
+  value?: string;
   onActivate: (tabId: number) => void;
   onClose: (tabId: number) => void;
   onToggleSelect: (tabId: number, multi: boolean) => void;
@@ -14,7 +19,7 @@ export interface TabItemProps {
   onDragEnd?: (tabId: number) => void;
 }
 
-export function TabItem({ tab, selected, onActivate, onClose, onToggleSelect, onDragStart, onDragEnd }: TabItemProps) {
+export function TabItem({ tab, selected, value, onActivate, onClose, onToggleSelect, onDragStart, onDragEnd }: TabItemProps) {
   if (!tab.id) return null;
 
   const draggingRef = useRef(false);
@@ -30,7 +35,7 @@ export function TabItem({ tab, selected, onActivate, onClose, onToggleSelect, on
   return (
     <Reorder.Item
       as="div"
-      value={tab.id}
+      value={value ?? `t:${tab.id}`}
       drag={tab.pinned ? false : 'y'}
       layout
       dragMomentum={false}

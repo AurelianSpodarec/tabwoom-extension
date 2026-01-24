@@ -41,23 +41,35 @@ export function TabList({
     return map;
   }, [tabs]);
 
-  const [order, setOrder] = useState<number[]>(tabIds);
-  const initialOrderRef = useRef<number[]>(tabIds);
+  const keys = useMemo(() => tabIds.map(id => `t:${id}`), [tabIds]);
+
+  const [order, setOrder] = useState<string[]>(keys);
+  const initialOrderRef = useRef<string[]>(keys);
 
   useEffect(() => {
-    setOrder(tabIds);
-    initialOrderRef.current = tabIds;
-  }, [tabIds.join(',')]);
+    setOrder(keys);
+    initialOrderRef.current = keys;
+  }, [keys.join(',')]);
 
-  const orderedTabs = useMemo(() => order.map(id => tabById.get(id)).filter((t): t is Tab => !!t), [order, tabById]);
+  const orderedTabs = useMemo(
+    () =>
+      order
+        .map(k => {
+          const id = Number(k.slice(2));
+          return Number.isFinite(id) ? tabById.get(id) : undefined;
+        })
+        .filter((t): t is Tab => !!t),
+    [order, tabById],
+  );
 
-  const hasChanged = (a: number[], b: number[]) => a.length !== b.length || a.some((v, i) => v !== b[i]);
+  const hasChanged = (a: string[], b: string[]) => a.length !== b.length || a.some((v, i) => v !== b[i]);
 
   return (
     <Reorder.Group axis="y" as="div" values={order} onReorder={setOrder} layoutScroll className="flex flex-col gap-1">
       {orderedTabs.map(tab => (
         <TabItem
           key={tab.id}
+          value={`t:${tab.id}`}
           tab={tab}
           selected={!!tab.id && selectedTabIds.has(tab.id)}
           onActivate={onActivate}
@@ -74,7 +86,8 @@ export function TabList({
             if (!allowCommit) return;
 
             if (onCommitReorder && hasChanged(initialOrderRef.current, order)) {
-              onCommitReorder(order);
+              const orderedIds = order.map(k => Number(k.slice(2))).filter(id => Number.isFinite(id));
+              onCommitReorder(orderedIds);
             }
           }}
         />

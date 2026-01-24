@@ -200,7 +200,7 @@ export async function reorderTabsAtCurrentStartIndexOptimistic(orderedTabIds: nu
 
   const startIndex = Math.min(...tabs.map(t => t.index ?? 0));
 
-  // Keep store in sync: reorder only these tabs within the current global ordering.
+  // Compute a new global desired ordering by replacing the segment starting at startIndex.
   const sortedIds = [...prevTabs]
     .sort(byIndex)
     .map(t => t.id)
@@ -210,12 +210,13 @@ export async function reorderTabsAtCurrentStartIndexOptimistic(orderedTabIds: nu
   const withoutSegment = sortedIds.filter(id => !idSet.has(id));
   const desired = [...withoutSegment.slice(0, startIndex), ...orderedTabIds, ...withoutSegment.slice(startIndex)];
 
-  const { nextTabs } = normalizeDesiredOrder(prevTabs, desired);
+  // Important: persist by asserting the *entire* unpinned ordering, not only the moved subset.
+  const { pinned, unpinnedIds, nextTabs } = normalizeDesiredOrder(prevTabs, desired);
   setTabsAtomically(nextTabs);
 
   try {
     await withRefreshSuppressed(async () => {
-      await tabManager.moveTabs(orderedTabIds, startIndex);
+      await tabManager.moveTabs(unpinnedIds, pinned.length);
     });
     await refreshTabCache();
   } catch (e) {

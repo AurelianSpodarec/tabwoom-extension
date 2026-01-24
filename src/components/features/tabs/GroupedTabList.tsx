@@ -47,7 +47,6 @@ function GroupBlock({
   onToggleSelect,
   onGroupDragStart,
   onGroupDragEnd,
-  setHoverGroupId,
   onTabDragStart,
   onTabDragEnd,
   shouldCommitTabDrop,
@@ -59,7 +58,6 @@ function GroupBlock({
   onToggleSelect: (tabId: number, multi: boolean) => void;
   onGroupDragStart: (blockId: BlockId) => void;
   onGroupDragEnd: (blockId: BlockId) => void;
-  setHoverGroupId: (groupId: number | null) => void;
   onTabDragStart: (tabId: number, groupId: number | null) => void;
   onTabDragEnd: (tabId: number, groupId: number | null) => void;
   shouldCommitTabDrop: (tabId: number, groupId: number | null) => boolean;
@@ -75,7 +73,7 @@ function GroupBlock({
       dragListener={false}
       onDragStart={() => onGroupDragStart(block.id)}
       onDragEnd={() => onGroupDragEnd(block.id)}
-      onPointerEnter={() => setHoverGroupId(block.group?.id ?? null)}
+      data-drop-group-id={block.group?.id ?? 'null'}
       className="relative rounded py-1"
     >
       {block.group ? <GroupHeader group={block.group} dragControls={dragControls} /> : null}
@@ -108,7 +106,30 @@ export function GroupedTabList({ groupedTabs, selectedTabIds, onActivate, onClos
   const initialOrderRef = useRef<BlockId[]>(blockIds);
 
   const [hoverGroupId, setHoverGroupId] = useState<number | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState<number | null>(null);
   const draggingTabRef = useRef<{ tabId: number; sourceGroupId: number | null } | null>(null);
+
+  useEffect(() => {
+    if (!draggingTabId) return;
+
+    const handler = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const host = el?.closest('[data-drop-group-id]') as HTMLElement | null;
+      const raw = host?.dataset.dropGroupId;
+
+      if (!raw) return;
+      if (raw === 'null') {
+        setHoverGroupId(null);
+        return;
+      }
+
+      const next = Number(raw);
+      if (!Number.isNaN(next)) setHoverGroupId(next);
+    };
+
+    window.addEventListener('pointermove', handler, { passive: true });
+    return () => window.removeEventListener('pointermove', handler);
+  }, [draggingTabId]);
 
   useEffect(() => {
     setOrder(blockIds);
@@ -162,13 +183,14 @@ export function GroupedTabList({ groupedTabs, selectedTabIds, onActivate, onClos
             onGroupDragEnd={() => {
               commitBlockOrderIfChanged(order);
             }}
-            setHoverGroupId={setHoverGroupId}
             onTabDragStart={(tabId, groupId) => {
               draggingTabRef.current = { tabId, sourceGroupId: groupId };
+              setDraggingTabId(tabId);
               setHoverGroupId(groupId);
             }}
             onTabDragEnd={() => {
               draggingTabRef.current = null;
+              setDraggingTabId(null);
             }}
             shouldCommitTabDrop={shouldCommitTabDrop}
           />

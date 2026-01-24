@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { TabSearchBar } from '@/components/features/tabs/TabSearchBar';
-import { GroupedTabList } from '@/components/features/tabs/GroupedTabList';
-import { useGroupedTabs } from '@/hooks/useGroupedTabs';
+import { FlatTabList } from '@/components/features/tabs/FlatTabList';
 import { useTabSelection } from '@/hooks/useTabSelection';
 import { useTabSearch } from '@/hooks/useTabSearch';
 import { useTabCache } from '@/store';
+import type { Tab } from '@/services/tabs';
 import { activateTab, closeTabOptimistic } from '@/store/actions/tab-actions';
 
 export function TabPanel() {
@@ -13,25 +13,22 @@ export function TabPanel() {
   const hasLoaded = useTabCache(s => s.hasLoaded);
   const error = useTabCache(s => s.error);
 
-  const groupedTabs = useGroupedTabs();
+  const tabs = useTabCache(s => s.tabs);
+  const groups = useTabCache(s => s.groups);
+
   const { searchQuery } = useTabSearch();
   const { selectedTabIds, toggleTabSelection } = useTabSelection();
 
-  const filteredGroupedTabs = useMemo(() => {
+  const filteredTabs = useMemo((): Tab[] => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return groupedTabs;
+    if (!q) return tabs;
 
-    return groupedTabs
-      .map(group => ({
-        ...group,
-        tabs: group.tabs.filter(t => {
-          const title = t.title?.toLowerCase() ?? '';
-          const url = t.url?.toLowerCase() ?? '';
-          return title.includes(q) || url.includes(q);
-        }),
-      }))
-      .filter(group => group.tabs.length > 0);
-  }, [groupedTabs, searchQuery]);
+    return tabs.filter(t => {
+      const title = t.title?.toLowerCase() ?? '';
+      const url = t.url?.toLowerCase() ?? '';
+      return title.includes(q) || url.includes(q);
+    });
+  }, [tabs, searchQuery]);
 
   if (!hasLoaded && loading) return <div className="text-sm text-white/70">Loading tabs…</div>;
   if (!hasLoaded && error) return <div className="text-sm text-red-300">{error.message}</div>;
@@ -47,8 +44,9 @@ export function TabPanel() {
 
       {error ? <div className="mb-2 text-xs text-red-300">{error.message}</div> : null}
 
-      <GroupedTabList
-        groupedTabs={filteredGroupedTabs}
+      <FlatTabList
+        tabs={filteredTabs}
+        groups={groups}
         selectedTabIds={selectedTabIds}
         onActivate={tabId => void activateTab(tabId)}
         onClose={tabId => void closeTabOptimistic(tabId)}
