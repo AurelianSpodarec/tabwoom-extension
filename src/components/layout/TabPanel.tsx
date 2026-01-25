@@ -3,6 +3,7 @@ import { TabSearchBar } from '@/components/features/tabs/TabSearchBar';
 import { FlatTabList } from '@/components/features/tabs/FlatTabList';
 import { useTabSelection } from '@/hooks/useTabSelection';
 import { useTabSearch } from '@/hooks/useTabSearch';
+import { useDeferredBoolean } from '@/hooks/useDeferredBoolean';
 import { useTabCache } from '@/store';
 import type { Tab } from '@/services/tabs';
 import { activateTab, closeTabOptimistic } from '@/store/actions/tab-actions';
@@ -10,6 +11,7 @@ import { activateTab, closeTabOptimistic } from '@/store/actions/tab-actions';
 export function TabPanel() {
   const loading = useTabCache(s => s.loading);
   const refreshing = useTabCache(s => s.refreshing);
+  const showSyncing = useDeferredBoolean(refreshing, 500);
   const hasLoaded = useTabCache(s => s.hasLoaded);
   const error = useTabCache(s => s.error);
 
@@ -39,7 +41,7 @@ export function TabPanel() {
         <div className="min-w-0 flex-1">
           <TabSearchBar />
         </div>
-        {refreshing ? <div className="ml-2 shrink-0 text-xs text-white/50">Syncing…</div> : null}
+        {showSyncing ? <div className="ml-2 shrink-0 text-xs text-white/50">Syncing…</div> : null}
       </div>
 
       {error ? <div className="mb-2 text-xs text-red-300">{error.message}</div> : null}
