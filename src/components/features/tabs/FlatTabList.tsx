@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import type { MutableRefObject } from 'react';
-import { Reorder, useDragControls } from 'framer-motion';
+import { Reorder } from 'framer-motion';
 import type { DisplayItem } from '@/store';
 import { buildDisplayList, useDragStore } from '@/store';
 import type { Tab, TabGroup } from '@/services/tabs';
@@ -9,24 +8,13 @@ import { computeTabDrop } from '@/lib/drag/computeDropResult';
 import { computeGroupDragTargetIndex } from '@/lib/drag/computeGroupDragTargetIndex';
 import { clampGroupHeaderPlacement } from '@/lib/drag/clampGroupHeaderPlacement';
 import { mergeReorderWithAnchors } from '@/lib/drag/mergeReorderWithAnchors';
-import { GroupHeader } from './GroupHeader';
+import { normalizeGroupId, parseTabKey } from '@/lib/utils/group';
+import { GroupHeaderItem } from './GroupHeaderItem';
 import { TabItem } from './TabItem';
 import { DropIndicator } from './DropIndicator';
-import { draggedGroupStyle } from '@/lib/motion-config';
 
 function idsEqual(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-function normalizeGroupId(groupId: number | undefined): number | null {
-  if (typeof groupId !== 'number') return null;
-  return groupId === -1 ? null : groupId;
-}
-
-function parseTabKey(key: string): number | null {
-  if (!key.startsWith('t:')) return null;
-  const id = Number(key.slice(2));
-  return Number.isFinite(id) ? id : null;
 }
 
 function moveInList<T>(list: T[], item: T, toIndex: number): T[] {
@@ -37,88 +25,6 @@ function moveInList<T>(list: T[], item: T, toIndex: number): T[] {
   next.splice(from, 1);
   next.splice(Math.max(0, Math.min(next.length, toIndex)), 0, item);
   return next;
-}
-
-function byIndex(a: Tab, b: Tab): number {
-  return (a.index ?? 0) - (b.index ?? 0);
-}
-
-
-
-function GroupHeaderItem({
-  item,
-  tabs,
-  orderRef,
-  initialOrderRef,
-  tabCount,
-  isDragging,
-  onGroupDragStart,
-  onGroupDragEnd,
-  onFallbackCommit,
-  onMoveGroup,
-}: {
-  item: Extract<DisplayItem, { type: 'group-header' }>;
-  tabs: Tab[];
-  orderRef: MutableRefObject<string[]>;
-  initialOrderRef: MutableRefObject<string[]>;
-  tabCount: number;
-  isDragging: boolean;
-  onGroupDragStart: (groupId: number, tabIds: number[]) => void;
-  onGroupDragEnd: () => void;
-  onFallbackCommit: () => void;
-  onMoveGroup: (tabIds: number[], groupId: number) => void;
-}) {
-  const dragControls = useDragControls();
-  const dragStore = useDragStore();
-  const dragTabIdsRef = useRef<number[]>([]);
-
-  return (
-    <Reorder.Item
-      value={item.key}
-      drag="y"
-      dragControls={dragControls}
-      dragListener={false}
-      dragMomentum={false}
-      dragElastic={0.05}
-      className="relative rounded py-1 touch-none"
-      data-group-header-id={item.groupId}
-      whileDrag={draggedGroupStyle}
-      onDragStart={() => {
-        const groupTabIds = tabs
-          .filter(t => typeof t.id === 'number' && !t.pinned && normalizeGroupId(t.groupId) === item.groupId)
-          .sort(byIndex)
-          .map(t => t.id as number);
-
-        dragTabIdsRef.current = groupTabIds;
-        initialOrderRef.current = orderRef.current;
-        onGroupDragStart(item.groupId, groupTabIds);
-      }}
-      onDragEnd={() => {
-        onGroupDragEnd();
-
-        const drag = dragStore.drag;
-        if (drag.kind !== 'dragging-group' || drag.groupId !== item.groupId) {
-          onFallbackCommit();
-          return;
-        }
-
-        const tabIds = dragTabIdsRef.current;
-        if (tabIds.length === 0) {
-          onFallbackCommit();
-          return;
-        }
-
-        onMoveGroup(tabIds, item.groupId);
-      }}
-    >
-      <GroupHeader
-        group={item.group}
-        dragControls={dragControls}
-        isDragging={isDragging}
-        tabCount={tabCount}
-      />
-    </Reorder.Item>
-  );
 }
 
 export interface FlatTabListProps {

@@ -1,4 +1,5 @@
 import type { Tab, TabGroup } from '@/services/tabs';
+import { normalizeGroupId } from '@/lib/utils/group';
 
 export type DisplayItem =
   | { type: 'group-header'; key: string; groupId: number; group: TabGroup }
@@ -6,11 +7,6 @@ export type DisplayItem =
 
 function byIndex(a: Tab, b: Tab): number {
   return (a.index ?? 0) - (b.index ?? 0);
-}
-
-function normalizeGroupId(groupId: number | undefined): number | null {
-  if (typeof groupId !== 'number') return null;
-  return groupId === -1 ? null : groupId;
 }
 
 /**

@@ -1,8 +1,7 @@
 export { TabItem } from './TabItem';
 export { TabList } from './TabList';
 export { GroupHeader } from './GroupHeader';
-export { GroupedTabList } from './GroupedTabList';
+export { GroupHeaderItem } from './GroupHeaderItem';
 export { FlatTabList } from './FlatTabList';
 export { TabSearchBar } from './TabSearchBar';
-export { TabContextMenu } from './TabContextMenu';
 export { DropIndicator } from './DropIndicator';

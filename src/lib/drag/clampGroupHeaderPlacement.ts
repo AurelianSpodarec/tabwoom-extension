@@ -1,15 +1,5 @@
 import type { DisplayItem } from '@/store/selectors/buildDisplayList';
-
-function normalizeGroupId(groupId: number | undefined): number | null {
-  if (typeof groupId !== 'number') return null;
-  return groupId === -1 ? null : groupId;
-}
-
-function parseHeaderGroupId(key: string): number | null {
-  if (!key.startsWith('h:')) return null;
-  const n = Number(key.slice(2));
-  return Number.isFinite(n) ? n : null;
-}
+import { normalizeGroupId, parseHeaderKey } from '@/lib/utils/group';
 
 export function clampGroupHeaderPlacement(input: {
   orderKeys: string[];
@@ -51,7 +41,7 @@ export function clampGroupHeaderPlacement(input: {
       // Skip dragged group's anchored tabs when scanning for group headers
       if (draggedTabKeys.has(k)) continue;
       
-      const groupId = parseHeaderGroupId(k);
+      const groupId = parseHeaderKey(k);
       if (groupId === null) continue;
       if (groupId === input.draggedGroupId) continue;
 
