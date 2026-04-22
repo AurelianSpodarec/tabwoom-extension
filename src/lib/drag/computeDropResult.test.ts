@@ -66,6 +66,35 @@ describe('computeTabDrop', () => {
     // Becomes first tab in group 10.
     expect(res).toEqual({ newIndex: 1, newGroupId: 10, type: 'enter-group' });
   });
+
+  it('drop after group but before ungrouped tab stays ungrouped', () => {
+    // Tab 99 dragged to after the last tab in group 10, but before an ungrouped tab.
+    // Should NOT join the group since we're not hovering the header.
+    const items = [h(10), t(1, 10), t(2, 10), t(99, null), t(3, null)];
+    const dropIndex = items.findIndex(i => i.type === 'tab' && i.tabId === 99);
+
+    const res = computeTabDrop(items, 99, dropIndex, null);
+    expect(res).toEqual({ newIndex: 2, newGroupId: null, type: 'reorder' });
+  });
+
+  it('drop after group at end of list stays ungrouped', () => {
+    // Tab 99 dragged to the very end, after a group.
+    // End of list is a boundary - tab stays ungrouped.
+    const items = [h(10), t(1, 10), t(2, 10), t(99, null)];
+    const dropIndex = items.findIndex(i => i.type === 'tab' && i.tabId === 99);
+
+    const res = computeTabDrop(items, 99, dropIndex, null);
+    expect(res).toEqual({ newIndex: 2, newGroupId: null, type: 'reorder' });
+  });
+
+  it('drop into middle of group joins group', () => {
+    // Tab 99 (ungrouped) dragged to between tab 2 and tab 3 in group 10.
+    const items = [h(10), t(1, 10), t(2, 10), t(99, null), t(3, 10)];
+    const dropIndex = items.findIndex(i => i.type === 'tab' && i.tabId === 99);
+
+    const res = computeTabDrop(items, 99, dropIndex, null);
+    expect(res).toEqual({ newIndex: 2, newGroupId: 10, type: 'enter-group' });
+  });
 });
 
 describe('computeGroupDrop', () => {

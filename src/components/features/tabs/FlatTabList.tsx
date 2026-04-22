@@ -3,7 +3,7 @@ import { Reorder } from 'framer-motion';
 import type { DisplayItem } from '@/store';
 import { buildDisplayList, useDragStore } from '@/store';
 import type { Tab, TabGroup } from '@/services/tabs';
-import { moveGroupOptimistic, moveTabAcrossGroupsOptimistic, reorderTabsOptimistic } from '@/store/actions/tab-actions';
+import { moveGroupOptimistic, moveTabAcrossGroupsOptimistic, reorderTabsOptimistic, syncTabOrderDuringDrag, syncTabToGroupDuringDrag, cancelDragSync } from '@/store/actions/tab-actions';
 import { computeTabDrop } from '@/lib/drag/computeDropResult';
 import { computeGroupDragTargetIndex } from '@/lib/drag/computeGroupDragTargetIndex';
 import { clampGroupHeaderPlacement } from '@/lib/drag/clampGroupHeaderPlacement';
@@ -135,6 +135,21 @@ export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose,
       const afterItem = afterKey ? itemByKey.get(afterKey) : null;
       const groupColor = afterItem?.type === 'group-header' ? afterItem.group.color : undefined;
       dragStore.setDropIndicator({ afterKey, groupColor });
+
+      const desiredTabIds = merged.map(parseTabKey).filter((id): id is number => typeof id === 'number');
+
+      // Detect group membership change: tab dropped right after a group header
+      const targetGroupId = afterItem?.type === 'group-header' ? afterItem.groupId : null;
+      const sourceGroupId = drag.sourceGroupId;
+      const isEnteringGroup = targetGroupId !== null && targetGroupId !== sourceGroupId;
+
+      if (isEnteringGroup) {
+        const pinnedCount = tabs.filter(t => !!t.pinned).length;
+        const toIndex = pinnedCount + desiredTabIds.indexOf(drag.tabId);
+        syncTabToGroupDuringDrag(drag.tabId, targetGroupId, toIndex);
+      } else {
+        syncTabOrderDuringDrag(desiredTabIds);
+      }
     }
 
     if (drag.kind !== 'dragging-group') {
@@ -263,6 +278,7 @@ export function FlatTabList({ tabs, groups, selectedTabIds, onActivate, onClose,
                 hoveredHeaderGroupIdRef.current = sourceGroupId;
               }}
               onDragEnd={() => {
+                cancelDragSync();
                 const currentDrag = dragStore.drag;
                 dragStore.endDrag();
 

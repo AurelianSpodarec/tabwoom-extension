@@ -6,6 +6,9 @@ const tabManager = getTabManager();
 let refreshInFlight: Promise<void> | null = null;
 let pendingRefresh = false;
 
+let dragSyncTimeout: ReturnType<typeof setTimeout> | null = null;
+const DRAG_SYNC_DEBOUNCE_MS = 80;
+
 let refreshSuppressedDepth = 0;
 let refreshRequestedWhileSuppressed = false;
 
@@ -124,6 +127,73 @@ export async function ungroupTabs(tabIds: number[]): Promise<void> {
 export async function moveTabToGroup(tabId: number, groupId: number): Promise<void> {
   await tabManager.moveTabToGroup(tabId, groupId);
   await refreshTabCache();
+}
+
+type DragSyncState = {
+  type: 'reorder';
+  desiredTabIds: number[];
+} | {
+  type: 'move-to-group';
+  tabId: number;
+  targetGroupId: number | null;
+  toIndex: number;
+};
+
+let pendingDragSync: DragSyncState | null = null;
+
+export function syncTabOrderDuringDrag(desiredTabIdsInOrder: number[]): void {
+  if (dragSyncTimeout) clearTimeout(dragSyncTimeout);
+
+  pendingDragSync = { type: 'reorder', desiredTabIds: desiredTabIdsInOrder };
+  dragSyncTimeout = setTimeout(() => {
+    dragSyncTimeout = null;
+    const sync = pendingDragSync;
+    pendingDragSync = null;
+    if (sync?.type === 'reorder') void performDragSync(sync.desiredTabIds);
+  }, DRAG_SYNC_DEBOUNCE_MS);
+}
+
+export function syncTabToGroupDuringDrag(tabId: number, targetGroupId: number | null, toIndex: number): void {
+  if (dragSyncTimeout) clearTimeout(dragSyncTimeout);
+
+  pendingDragSync = { type: 'move-to-group', tabId, targetGroupId, toIndex };
+  dragSyncTimeout = setTimeout(() => {
+    dragSyncTimeout = null;
+    const sync = pendingDragSync;
+    pendingDragSync = null;
+    if (sync?.type === 'move-to-group') void performGroupMoveSync(sync.tabId, sync.targetGroupId, sync.toIndex);
+  }, DRAG_SYNC_DEBOUNCE_MS);
+}
+
+export function cancelDragSync(): void {
+  if (dragSyncTimeout) {
+    clearTimeout(dragSyncTimeout);
+    dragSyncTimeout = null;
+  }
+  pendingDragSync = null;
+}
+
+async function performDragSync(desiredTabIdsInOrder: number[]): Promise<void> {
+  const prevTabs = tabCache.getState().tabs;
+  const { pinned, unpinnedIds } = normalizeDesiredOrder(prevTabs, desiredTabIdsInOrder);
+
+  await withRefreshSuppressed(async () => {
+    await tabManager.moveTabs(unpinnedIds, pinned.length);
+  });
+}
+
+async function performGroupMoveSync(tabId: number, targetGroupId: number | null, toIndex: number): Promise<void> {
+  const prevTabs = tabCache.getState().tabs;
+  const pinnedCount = prevTabs.filter(t => t.pinned).length;
+
+  await withRefreshSuppressed(async () => {
+    if (targetGroupId === null) {
+      await tabManager.ungroupTabs([tabId]);
+    } else {
+      await tabManager.moveTabToGroup(tabId, targetGroupId);
+    }
+    await tabManager.moveTab(tabId, Math.max(pinnedCount, toIndex));
+  });
 }
 
 function byIndex(a: Tab, b: Tab): number {

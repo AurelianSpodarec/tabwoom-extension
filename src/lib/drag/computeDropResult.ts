@@ -59,6 +59,8 @@ export function computeTabDrop(
         : null;
 
   const nextHeaderGroupId = nextItem?.type === 'group-header' ? nextItem.groupId : null;
+  const nextTabGroupId =
+    nextItem?.type === 'tab' ? (nextItem.tab.groupId === -1 ? null : nextItem.tab.groupId) : null;
 
   const draggedIndexInTabsOnly = countTabsBefore(displayItems, dropIndex);
 
@@ -93,10 +95,23 @@ export function computeTabDrop(
     }
   }
 
-  // If we landed right before a header for a *different* group, treat this as a between-groups drop.
-  // That is: the tab becomes ungrouped at that boundary.
-  if (hoveredHeaderGroupId === null && nextHeaderGroupId !== null && prevGroupId !== null && prevGroupId !== nextHeaderGroupId) {
-    newGroupId = null;
+  // Boundary detection: prevent accidentally joining a group when not intended.
+  if (hoveredHeaderGroupId === null) {
+    // Case 1: Landing between two different groups (next item is a different group's header).
+    if (nextHeaderGroupId !== null && prevGroupId !== null && prevGroupId !== nextHeaderGroupId) {
+      newGroupId = null;
+    }
+
+    // Case 2: Landing after a group's last tab at a boundary (end of list or before ungrouped tab).
+    // Only applies when trying to JOIN a group (not reordering within own group).
+    // To join a group, must drop BETWEEN two tabs of the same group, or hover the header.
+    const prevIsGroupedTab = prevItem?.type === 'tab' && prevGroupId !== null;
+    if (prevIsGroupedTab && prevGroupId !== sourceGroupId) {
+      const nextIsOutsideGroup = nextItem === undefined || (nextItem?.type === 'tab' && nextTabGroupId === null);
+      if (nextIsOutsideGroup) {
+        newGroupId = null;
+      }
+    }
   }
 
   return {
